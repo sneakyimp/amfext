@@ -1,80 +1,63 @@
+dnl $Id$
+dnl config.m4 for extension amfg
 
-dnl $Id: config.m4,v 1.2 2007/04/20 20:20:08 sankazim Exp $
-dnl
+dnl Comments in this file start with the string 'dnl'.
+dnl Remove where necessary. This file will not work
+dnl without editing.
 
-AC_DEFUN([PHP_AMF_ADD_SOURCES], [
-  PHP_AMF_SOURCES="$PHP_AMF_SOURCES $1"
-])
+dnl If your extension references something external, use with:
 
-AC_DEFUN([PHP_AMF_ADD_BASE_SOURCES], [
-  PHP_AMF_BASE_SOURCES="$PHP_AMF_BASE_SOURCES $1"
-])
+dnl PHP_ARG_WITH(amf, for amf support,
+dnl Make sure that the comment is aligned:
+dnl [  --with-amf             Include amf support])
 
-AC_DEFUN([PHP_AMF_ADD_BUILD_DIR], [
-  PHP_AMF_EXTRA_BUILD_DIRS="$PHP_AMF_EXTRA_BUILD_DIRS $1"
-])
+dnl Otherwise use enable:
 
-AC_DEFUN([PHP_AMF_ADD_INCLUDE], [
-  PHP_AMF_EXTRA_INCLUDES="$PHP_AMF_EXTRA_INCLUDES $1"
-])
+PHP_ARG_ENABLE(amf, whether to enable amf support,
+[  --enable-amf           Enable amf support])
 
-AC_DEFUN([PHP_AMF_ADD_CONFIG_HEADER], [
-  PHP_AMF_EXTRA_CONFIG_HEADERS="$PHP_AMF_EXTRA_CONFIG_HEADERS $1"
-])
+if test "$PHP_AMF" != "no"; then
+  dnl Write more examples of tests here...
 
-AC_DEFUN([PHP_AMF_ADD_CFLAG], [
-  PHP_AMF_CFLAGS="$PHP_AMF_CFLAGS $1"
-])
+  dnl # --with-amf -> check with-path
+  dnl SEARCH_PATH="/usr/local /usr"     # you might want to change this
+  dnl SEARCH_FOR="/include/amf.h"  # you most likely want to change this
+  dnl if test -r $PHP_AMF/$SEARCH_FOR; then # path given as parameter
+  dnl   AMF_DIR=$PHP_AMF
+  dnl else # search default path list
+  dnl   AC_MSG_CHECKING([for amf files in default path])
+  dnl   for i in $SEARCH_PATH ; do
+  dnl     if test -r $i/$SEARCH_FOR; then
+  dnl       AMF_DIR=$i
+  dnl       AC_MSG_RESULT(found in $i)
+  dnl     fi
+  dnl   done
+  dnl fi
+  dnl
+  dnl if test -z "$AMF_DIR"; then
+  dnl   AC_MSG_RESULT([not found])
+  dnl   AC_MSG_ERROR([Please reinstall the amf distribution])
+  dnl fi
 
-AC_DEFUN([PHP_AMF_EXTENSION], [
-  PHP_NEW_EXTENSION(amf, $PHP_AMF_SOURCES, $ext_shared,, $PHP_AMF_CFLAGS)
-  PHP_SUBST(AMF_SHARED_LIBADD)
+  dnl # --with-amf -> add include path
+  dnl PHP_ADD_INCLUDE($AMF_DIR/include)
 
-  for dir in $PHP_AMF_EXTRA_BUILD_DIRS; do
-    PHP_ADD_BUILD_DIR([$ext_builddir/$dir], 1)
-  done
-  
-  for dir in $PHP_AMF_EXTRA_INCLUDES; do
-    PHP_ADD_INCLUDE([$ext_srcdir/$dir])
-    PHP_ADD_INCLUDE([$ext_builddir/$dir])
-  done
+  dnl # --with-amf -> check for lib and symbol presence
+  dnl LIBNAME=amf # you may want to change this
+  dnl LIBSYMBOL=amf # you most likely want to change this 
 
-  if test "$ext_shared" = "no"; then
-    PHP_ADD_SOURCES(PHP_EXT_DIR(amf), $PHP_AMF_BASE_SOURCES,$PHP_AMF_CFLAGS)
-    out="php_config.h"
-  else
-    PHP_ADD_SOURCES_X(PHP_EXT_DIR(amf),$PHP_AMF_BASE_SOURCES,$PHP_AMF_CFLAGS,shared_objects_amf,yes)
-    if test -f "$ext_builddir/config.h.in"; then
-      out="$abs_builddir/config.h"
-    else
-      out="php_config.h"
-    fi
-  fi
-  
-  for cfg in $PHP_AMF_EXTRA_CONFIG_HEADERS; do
-    cat > $ext_builddir/$cfg <<EOF
-#include "$out"
-EOF
-  done
-])
+  dnl PHP_CHECK_LIBRARY($LIBNAME,$LIBSYMBOL,
+  dnl [
+  dnl   PHP_ADD_LIBRARY_WITH_PATH($LIBNAME, $AMF_DIR/lib, AMF_SHARED_LIBADD)
+  dnl   AC_DEFINE(HAVE_AMFLIB,1,[ ])
+  dnl ],[
+  dnl   AC_MSG_ERROR([wrong amf lib version or lib not found])
+  dnl ],[
+  dnl   -L$AMF_DIR/lib -lm
+  dnl ])
+  dnl
+  dnl PHP_SUBST(AMF_SHARED_LIBADD)
 
-dnl
-dnl Main config
-dnl
-
-PHP_ARG_WITH(amf, whether to enable AMF Serialization support,
-[  --with-amf       Enable AMF Object Serialization support])
-
-if test "$PHP_AMF" != "no"; then  
-  AC_DEFINE([HAVE_AMF],1,[whether to have AMF Object Serialization support])
-  AC_HEADER_STDC
-
-  PHP_AMF_ADD_BASE_SOURCES([amf.c])
-
-  dnl amf_c is required
-  PHP_AMF_SETUP_AMF_CHECKER
-  PHP_AMF_EXTENSION
-  dnl PHP_INSTALL_HEADERS([ext/amf], [amf_c])
+  AC_DEFINE(HAVE_AMF, 1, [Whether you have AMF])
+  PHP_NEW_EXTENSION(amf, amf.c, $ext_shared)
 fi
-
-# vim600: sts=2 sw=2 et

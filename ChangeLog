@@ -1,3 +1,12 @@
+2015-09-26  J. Adams
+version 0.10.0
+- replacing all of E. Ruffaldi's old code with new code
+- will only work with php 5.5+ (not php 7) I believe
+- An entirely fresh start.
+- should properly serialize all data types except for named classes with dynamically assigned properties
+
+*** No ChangeLog entry from E. Ruffaldi for 0.9.2 ***
+
 2008-07-17  Emanuele Ruffaldi <emanuele.ruffaldi@gmail.com>
 version 0.9.1
 - fixed pecl bug 12668 on anonymous serialization
