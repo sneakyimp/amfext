@@ -1,12 +1,17 @@
-# amfext
-The source in this directory contains E. Ruffaldi's original v0.9.2 source code (now years old)
-as downloaded from the PECL website at php.net here: https://pecl.php.net/package/amfext
 # amfext v0.10.0
-The source in this directory is for AMFEXT.
+This is the source code for the PECL extension of AMFEXT and its currently in a state of flux and upgrade.
 
-Originally written by Emanuele Ruffaldi, this extension will serialize and unserialize
+Please be patient.
+
+Note that this version of amfext constitutes a complete rewrite of E. Riffaldi's original code.
+
+Originally written by Emanuele Ruffaldi, this PHP extension will serialize and unserialize
 PHP data objects to Adobe/Macromedia's Actionscript Messsage Format 3 format. AMF3 is
 supported. The original AMF (AMF0?) format is no longer supported at all.
+
+E. Ruffaldi's original v0.9.2 source code (now years old) is tagged and available via the
+0.9.2 tag (and branch). This is the exact code as downloaded from the PECL website 
+here: https://pecl.php.net/package/amfext
 
 For the published AMF3 spec, go here:
 http://www.adobe.com/go/amfspec
