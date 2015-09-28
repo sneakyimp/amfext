@@ -21,7 +21,7 @@
 #ifndef PHP_AMF_H
 #define PHP_AMF_H
 
-#define PHP_AMF_VERSION "0.9.4"
+#define PHP_AMF_VERSION "0.10.0"
 #include "ext/standard/php_smart_str.h"
 
 extern zend_module_entry amf_module_entry;

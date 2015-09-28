@@ -1183,7 +1183,19 @@ static PHP_FUNCTION(amf_encode) {
 	zend_hash_destroy(&(htObjectTypeTraits));
 	zend_hash_destroy(&(htStrings));
 
-	ZVAL_STRINGL(return_value, buf.c, buf.len, 1);
+
+	// I borrowed this trick from the json_encode function. NOTE that function also lets you specify whether you want partial output
+//	if (JSON_G(error_code) != PHP_JSON_ERROR_NONE && !(options & PHP_JSON_PARTIAL_OUTPUT_ON_ERROR)) {
+//		ZVAL_FALSE(return_value);
+//	} else {
+//		ZVAL_STRINGL(return_value, buf.c, buf.len, 1);
+//	}
+
+	if (AMF_G(error_code) != PHP_AMF_ERROR_NONE) {
+		ZVAL_FALSE(return_value);
+	} else {
+		ZVAL_STRINGL(return_value, buf.c, buf.len, 1);
+	}
 
 	smart_str_free(&buf);
 
