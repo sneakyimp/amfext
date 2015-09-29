@@ -48,6 +48,7 @@ static PHP_MINFO_FUNCTION(amf);
 static PHP_FUNCTION(amf_encode);
 static PHP_FUNCTION(amf_decode);
 static PHP_FUNCTION(amf_last_error);
+static PHP_FUNCTION(amf_last_error_msg);
 
 /* 
   	Declare any global variables you may need between the BEGIN
@@ -119,7 +120,11 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len, long
 #define PHP_AMF_AMF3_TYPE_BYTEARRAY ((unsigned char)0x0C)
 
 /* error codes */
-#define PHP_AMF_ERROR_NONE (0x00)
+#define PHP_AMF_ERROR_NONE ((unsigned char)0x00)
+#define PHP_AMF_ERROR_TOO_MANY_REFERENCES ((unsigned char)0x01)
+#define PHP_AMF_ERROR_TOO_MANY_CLASSES ((unsigned char) 0x02)
+#define PHP_AMF_ERROR_TOO_MANY_OBJECT_PROPERTIES ((unsigned char) 0x03)
+#define PHP_AMF_ERROR_TYPE_SERIALIZATION_NOT_SUPPORTED ((unsigned char) 0x04)
 
 /* misc boundary numbers, etc */
 #define PHP_AMF_AMF3_INT_MAX 268435455
@@ -129,6 +134,7 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len, long
 #define PHP_AMF_ARRAY_CONTIG_LENGTH_MAX PHP_AMF_AMF3_INT_MAX
 #define PHP_AMF_OBJECT_PROPERTIES_MAX 33554431
 #define PHP_AMF_OBJECT_REFERENCES_MAX PHP_AMF_AMF3_INT_MAX
+#define PHP_AMF_OBJECT_CLASSES_MAX 134217728 // 2^27, constrained by U29O-traits-ref
 
 /* system endianness constants */
 #define PHP_AMF_ENDIAN_LITTLE 0

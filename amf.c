@@ -22,7 +22,7 @@
 #endif
 
 #ifdef HAVE_CONFIG_H
-#include "../amf-master-works/config.h"
+#include "config.h"
 #endif
 
 #include "php.h"
@@ -30,7 +30,7 @@
 #include "ext/standard/info.h"
 #include "ext/standard/php_smart_str.h"
 #include "ext/standard/php_var.h"
-#include "../amf-master-works/php_amf.h"
+#include "php_amf.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(amf)
 
@@ -46,13 +46,17 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO(arginfo_amf_last_error, 0)
 ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO(arginfo_amf_last_error_msg, 0)
+ZEND_END_ARG_INFO()
+
 /* }}} */
 
 /* {{{ amf_functions[] */
 static const zend_function_entry amf_functions[] = {
 		PHP_FE(amf_encode, arginfo_amf_encode)
 		PHP_FE(amf_decode, arginfo_amf_decode)
-		PHP_FE(amf_last_error, arginfo_amf_last_error) { NULL, NULL, NULL } /* Must be the last line in amf_functions[] */
+		PHP_FE(amf_last_error, arginfo_amf_last_error)
+		PHP_FE(amf_last_error_msg, arginfo_amf_last_error_msg) { NULL, NULL, NULL } /* Must be the last line in amf_functions[] */
 };
 /* }}} */
 
@@ -136,6 +140,14 @@ PHP_MINIT_FUNCTION(amf) {
 
 	/* error constants */
 	REGISTER_LONG_CONSTANT("AMF_ERROR_NONE", PHP_AMF_ERROR_NONE,
+			CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("AMF_ERROR_TOO_MANY_REFERENCES", PHP_AMF_ERROR_TOO_MANY_REFERENCES,
+			CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("AMF_ERROR_TOO_MANY_CLASSES", PHP_AMF_ERROR_TOO_MANY_CLASSES,
+			CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("AMF_ERROR_TOO_MANY_OBJECT_PROPERTIES", PHP_AMF_ERROR_TOO_MANY_OBJECT_PROPERTIES,
+			CONST_CS | CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("PHP_AMF_ERROR_TYPE_SERIALIZATION_NOT_SUPPORTED", PHP_AMF_ERROR_TYPE_SERIALIZATION_NOT_SUPPORTED,
 			CONST_CS | CONST_PERSISTENT);
 
 	/* miscellaneous boundary numbers, etc. */
@@ -408,12 +420,13 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 	prevReferences = zend_hash_num_elements(htObjectTypeTraits);
 	// if we've already serialized our upper limit of arrays/objects, then this object is one too many
 	if (prevReferences >= PHP_AMF_OBJECT_REFERENCES_MAX) {
-		// TODO: this probably shouldn't be a fatal error? we should set the global last_error value and maybe try to return FALSE as our net result
-		php_error_docref(
-				NULL TSRMLS_CC,
-				E_ERROR,
-				"number of objects exceeded maximum of %d. serialized as empty string",
-				PHP_AMF_OBJECT_REFERENCES_MAX);
+		// set the global last_error value and return
+		AMF_G(error_code) = PHP_AMF_ERROR_TOO_MANY_REFERENCES;
+//		php_error_docref(
+//				NULL TSRMLS_CC,
+//				E_ERROR,
+//				"number of objects exceeded maximum of %d. serialized as empty string",
+//				PHP_AMF_OBJECT_REFERENCES_MAX);
 		return;
 	}
 
@@ -505,7 +518,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 			// A INSTANCE OF THIS CLASS HAS PREVIOUSLY BEEN SERIALIZED
 			// so we do not need to send it's class-name or "sealed" traits -- i.e., the non-dynamic traits defined by the object's class definition
 			// we just need to encode a reference to the index of this class's entry in htObjectTypeTraits
-			currentObjectClassEntryIndex = (*existingClassEntryIndex); // TODO - not correct?
+			currentObjectClassEntryIndex = (*existingClassEntryIndex);
 //			php_printf("found class definition, currentObjectClassEntryIndex=%ld\n", currentObjectClassEntryIndex);
 
 			// this flag tells us that the traits were previously serialized when we encountered this class before
@@ -544,9 +557,11 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 			// otherwise, we must encode a new entry in htObjectTypeTraits
 			currentObjectClassEntryIndex = zend_hash_num_elements(htObjectTypeTraits);
 			//php_printf("remembering class definition, currentObjectClassEntryIndex=%ld\n", currentObjectClassEntryIndex);
-			if (currentObjectClassEntryIndex >= PHP_AMF_OBJECT_PROPERTIES_MAX) {
+			if (currentObjectClassEntryIndex >= PHP_AMF_OBJECT_CLASSES_MAX) {
 				// we've exceeded the number of classes that can be specified
-				// TODO: should probably create an E_WARNING or E_NOTICE, set last error, and serialize this object as empty string
+				// i believe this is constrained by 27 bits in U29O-traits-ref
+				AMF_G(error_code) = PHP_AMF_ERROR_TOO_MANY_CLASSES;
+				return;
 			}
 
 			// append the class of this object (i.e., classEntry) to the end of htObjectTypeTraits
@@ -603,8 +618,9 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 				zend_hash_move_forward_ex(defaultProperties, &pos);
 			}
 			if (sealedTraitCount > PHP_AMF_OBJECT_PROPERTIES_MAX){
-				// maximum property count exceeded
-				// TODO: fatal error? serialize as empty string and quit? - low priority as this is extremely unlikely
+				// maximum number of sealed traits exceeded. I believe this is constrained by the 25-bit specifier in U29O-traits
+				AMF_G(error_code) = PHP_AMF_ERROR_TOO_MANY_OBJECT_PROPERTIES;
+				return;
 			}
 		}
 //		php_printf("%d sealed traits / default properties found\n", sealedTraitCount);
@@ -769,12 +785,13 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 	// check to make sure less than PHP_AMF_OBJECT_REFERENCES_MAX before trying
 	prevReferences = zend_hash_num_elements(htComplexObjects);
 	if (prevReferences > PHP_AMF_OBJECT_REFERENCES_MAX) {
-		// TODO: is this a fatal error? should we set the global last_error value?
-		php_error_docref(
-				NULL TSRMLS_CC,
-				E_ERROR,
-				"number of arrays exceeded maximum of %d. serialized as empty string",
-				PHP_AMF_OBJECT_REFERENCES_MAX);
+		// set the global last_error value and return
+		AMF_G(error_code) = PHP_AMF_ERROR_TOO_MANY_REFERENCES;
+//		php_error_docref(
+//				NULL TSRMLS_CC,
+//				E_ERROR,
+//				"number of objects exceeded maximum of %d. serialized as empty string",
+//				PHP_AMF_OBJECT_REFERENCES_MAX);
 		return;
 	}
 
@@ -961,7 +978,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 				php_amf_encode(buf, *data, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
 
 			} else {
-				// TODO: a fatal error? should we set the global last_error value?
+				// A fatal error. This behavior and weird and unexpected and should not be due to any problem with user input.
 				php_error_docref(
 						NULL TSRMLS_CC,
 						E_ERROR,
@@ -1002,6 +1019,12 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 
 PHP_AMF_API void php_amf_encode(smart_str *buf, zval *val, int flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC) /* {{{ */
 {
+	if (AMF_G(error_code) != PHP_AMF_ERROR_NONE) {
+		// skip any additional serialization if we've encountered an error
+		return;
+	}
+
+
 	switch (Z_TYPE_P(val)) {
 	case IS_NULL:
 //		php_printf("serializing NULL!\n");
@@ -1062,8 +1085,11 @@ PHP_AMF_API void php_amf_encode(smart_str *buf, zval *val, int flags, HashTable 
 		break;
 
 	default:
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "type %d is unsupported, encoded as null", Z_TYPE_P(val));
-		amf_write_byte(buf, PHP_AMF_AMF3_TYPE_NULL);
+		// set the global last_error value and return
+		AMF_G(error_code) = PHP_AMF_ERROR_TYPE_SERIALIZATION_NOT_SUPPORTED;
+		return;
+
+		// this is never reached
 		break;
 	}
 
@@ -1071,75 +1097,40 @@ PHP_AMF_API void php_amf_encode(smart_str *buf, zval *val, int flags, HashTable 
 } /* php_amf_encode() */
 /* }}} */
 
-PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len,
-		long flags TSRMLS_DC) /* {{{ */
+PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len, long flags TSRMLS_DC) /* {{{ */
 {
-	/* todo finish this biotch
-	 int utf16_len;
+
+	if (AMF_G(error_code) != PHP_AMF_ERROR_NONE) {
+		// skip any additional deserialization and return
+		return;
+	}
+
+	/* some tricks?
 	 zval *z;
-	 unsigned short *utf16;
-	 JSON_parser jp;
-
-	 utf16 = (unsigned short *) safe_emalloc((str_len+1), sizeof(unsigned short), 1);
-
-	 utf16_len = utf8_to_utf16(utf16, str, str_len);
-	 if (utf16_len <= 0) {
-	 if (utf16) {
-	 efree(utf16);
-	 }
-	 JSON_G(error_code) = PHP_JSON_ERROR_UTF8;
-	 RETURN_NULL();
-	 }
-
-	 if (depth <= 0) {
-	 php_error_docref(NULL TSRMLS_CC, E_WARNING, "Depth must greater than zero");
-	 efree(utf16);
-	 RETURN_NULL();
-	 }
-
 	 ALLOC_INIT_ZVAL(z);
-	 jp = new_JSON_parser(depth);
-	 if (parse_JSON(jp, z, utf16, utf16_len, assoc TSRMLS_CC)) {
 	 *return_value = *z;
-	 }
-	 else
-	 {
-	 double d;
-	 int type;
-	 long p;
-
 	 RETVAL_NULL();
-	 if (str_len == 4) {
-	 if (!strcasecmp(str, "null")) {
-	 // We need to explicitly clear the error because its an actual NULL and not an error
-	 jp->error_code = PHP_JSON_ERROR_NONE;
 	 RETVAL_NULL();
-	 } else if (!strcasecmp(str, "true")) {
 	 RETVAL_BOOL(1);
-	 }
-	 } else if (str_len == 5 && !strcasecmp(str, "false")) {
 	 RETVAL_BOOL(0);
-	 }
 
-	 if ((type = is_numeric_string(str, str_len, &p, &d, 0)) != 0) {
 	 if (type == IS_LONG) {
 	 RETVAL_LONG(p);
 	 } else if (type == IS_DOUBLE) {
 	 RETVAL_DOUBLE(d);
 	 }
-	 }
 
 	 if (Z_TYPE_P(return_value) != IS_NULL) {
-	 jp->error_code = PHP_JSON_ERROR_NONE;
 	 }
 
 	 zval_dtor(z);
-	 }
 	 FREE_ZVAL(z);
-	 efree(utf16);
-	 JSON_G(error_code) = jp->error_code;
-	 free_JSON_parser(jp);
 	 */
+
+	// TOOD: finish this biotch. for now, just return null
+	RETVAL_NULL();
+
+
 } // php_amf_decode()
 /* }}} */
 
@@ -1214,10 +1205,11 @@ static PHP_FUNCTION(amf_decode) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Invalid argument count");
 	}
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &amf_string,
-			&str_len, &flags) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &amf_string, &str_len, &flags) == FAILURE) {
 		return;
 	}
+
+	AMF_G(error_code) = PHP_AMF_ERROR_NONE;
 
 	if (!str_len) {
 		RETURN_NULL();
@@ -1228,7 +1220,7 @@ static PHP_FUNCTION(amf_decode) {
 /* }}} */
 
 /* {{{ proto int amf_last_error()
- Returns the error code of the last amf serialize or unserialize operation. */
+ Returns the error code of the last amf_encode or amf_decode operation. */
 static PHP_FUNCTION(amf_last_error) {
 	if (zend_parse_parameters_none() == FAILURE) {
 		return;
@@ -1238,6 +1230,32 @@ static PHP_FUNCTION(amf_last_error) {
 }
 /* }}} */
 
+
+/* {{{ proto string json_last_error_msg()
+   Returns the error string of the last json_encode() or json_decode() call. */
+static PHP_FUNCTION(amf_last_error_msg)
+{
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	switch(AMF_G(error_code)) {
+		case PHP_AMF_ERROR_NONE:
+			RETURN_STRING("No error", 1);
+		case PHP_AMF_ERROR_TOO_MANY_REFERENCES:
+			RETURN_STRING("Maximum number of objects exceeded", 1);
+		case PHP_AMF_ERROR_TOO_MANY_CLASSES:
+			RETURN_STRING("Maxiumum number of distinct classes exceeded", 1);
+		case PHP_AMF_ERROR_TOO_MANY_OBJECT_PROPERTIES:
+			RETURN_STRING("Maximum number of properties on one object exceeded", 1);
+		case PHP_AMF_ERROR_TYPE_SERIALIZATION_NOT_SUPPORTED:
+			RETURN_STRING("Data type encountered for which serialization is not supported", 1);
+		default:
+			RETURN_STRING("Unknown error", 1);
+	}
+
+}
+/* }}} */
 
 
 /*
