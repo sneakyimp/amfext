@@ -1158,9 +1158,34 @@ int amf_read_int(char *buf, int buf_len, int *buf_cursor) {
 
 } // amf_read_int
 
-double amf_read_double(char *uf, int buf_len, int *buf_cursor) {
+double amf_read_double(char *buf, int buf_len, int *buf_cursor) {
 
-}
+	double result;
+	int i;
+
+
+	union {
+		double dval;
+		char cval[sizeof(double)];
+	} d;
+
+
+	if (AMF_G(endianness) == PHP_AMF_ENDIAN_LITTLE) {
+		// reverse the bytes?
+		for (i=0; i< sizeof(double); i++) {
+			d.cval[7-i] = 0xff & buf[*buf_cursor+i];
+		}
+	} else {
+		for (i=0; i< sizeof(double); i++) {
+			d.cval[i] = 0xff & buf[*buf_cursor+i];
+		}
+
+	}
+
+	result = d.dval;
+	return result;
+
+} // amf_read_double()
 PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, int buf_len, int *buf_cursor, long flags TSRMLS_DC) /* {{{ */
 {
 
@@ -1180,6 +1205,7 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, int buf_len, int 
 //	php_printf("buf_cursor is %d\n", *buf_cursor);
 
 	int int_result;
+	double double_result;
 
 	switch(byte) {
 		case PHP_AMF_AMF3_TYPE_UNDEFINED:
@@ -1197,7 +1223,8 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, int buf_len, int 
 			RETURN_LONG(int_result);
 			break;
 		case PHP_AMF_AMF3_TYPE_DOUBLE:
-php_printf("a double is %d size\n", sizeof(double));
+			double_result = amf_read_double(buf, buf_len, buf_cursor);
+			RETURN_DOUBLE(double_result);
 			break;
 		case PHP_AMF_AMF3_TYPE_STRING:
 		case PHP_AMF_AMF3_TYPE_XML_DOC:
