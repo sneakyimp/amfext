@@ -1097,12 +1097,117 @@ PHP_AMF_API void php_amf_encode(smart_str *buf, zval *val, int flags, HashTable 
 } /* php_amf_encode() */
 /* }}} */
 
-PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len, long flags TSRMLS_DC) /* {{{ */
+// reads one byte (a char) from the buffer, increments the cursor
+char amf_read_byte(char *buf, int buf_len, int *buf_cursor)
 {
+
+	if (*buf_cursor >= buf_len) {
+		// do I need to free up any memory here?
+		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Attempted to read byte %d when buffer only has length %d", *buf_cursor, buf_len);
+	}
+
+
+	char byte;
+	byte = buf[*buf_cursor];
+	(*buf_cursor)++;
+
+
+	return byte;
+} // amf_read_byte()
+
+// Reads a variable-length U29 integer from the buffer, increments the cursor
+// TODO: need to look at endianness??
+// TODO: what about 64-bit ints? these probably OK due to limits of U29 ints
+int amf_read_int(char *buf, int buf_len, int *buf_cursor) {
+	char byte;
+	int bytes_read=0; // number of bytes read
+	int result=0; // the integer result of this function
+
+	byte = amf_read_byte(buf, buf_len, buf_cursor);
+	bytes_read=1;
+
+    // keep reading bytes as long as the high bit is 1 and we haven't read 4 yet
+    while(((byte & 0x80) != 0) && bytes_read < 4) {
+        result <<= 7;
+        result |= (byte & 0x7f);
+
+        byte = amf_read_byte(buf, buf_len, buf_cursor);
+        bytes_read++;
+    }
+
+    if (bytes_read < 4) {
+        result <<= 7;
+        result |= (byte & 0x7f);
+
+    } else {
+        // if the last byte was the 4th,
+        // Use all 8 bits
+        result <<= 8;
+        result |= (byte & 0xff); // wtf is this for? not sure, but without the & 0xff we were getting too many bits set which was resulting in -1 values
+//php_printf("result: %x\n", result);
+        // Check the 29th bit to see if int should be negative
+        if ((result & 0x10000000) != 0) {
+//php_printf("29th bit is set\n");
+            // if so, extend the sign bit to full-32 bit rep of negative
+            result |= 0xe0000000;
+        }
+    }
+//php_printf("final result: %x\n", result);
+
+	return result;
+
+} // amf_read_int
+
+double amf_read_double(char *uf, int buf_len, int *buf_cursor) {
+
+}
+PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, int buf_len, int *buf_cursor, long flags TSRMLS_DC) /* {{{ */
+{
+
+//	php_printf("buf_cursor is %d\n", *buf_cursor);
+//	php_printf("buf_len is %d\n", buf_len);
 
 	if (AMF_G(error_code) != PHP_AMF_ERROR_NONE) {
 		// skip any additional deserialization and return
 		return;
+	}
+
+
+	char byte;
+	byte = amf_read_byte(buf, buf_len, buf_cursor);
+
+//	php_printf("Byte read is %x\n", byte);
+//	php_printf("buf_cursor is %d\n", *buf_cursor);
+
+	int int_result;
+
+	switch(byte) {
+		case PHP_AMF_AMF3_TYPE_UNDEFINED:
+		case PHP_AMF_AMF3_TYPE_NULL:
+			RETURN_NULL();
+
+		case PHP_AMF_AMF3_TYPE_FALSE:
+			RETURN_BOOL(0); // false
+
+		case PHP_AMF_AMF3_TYPE_TRUE:
+			RETURN_BOOL(1); // true
+
+		case PHP_AMF_AMF3_TYPE_INTEGER:
+			int_result = amf_read_int(buf, buf_len, buf_cursor);
+			RETURN_LONG(int_result);
+			break;
+		case PHP_AMF_AMF3_TYPE_DOUBLE:
+php_printf("a double is %d size\n", sizeof(double));
+			break;
+		case PHP_AMF_AMF3_TYPE_STRING:
+		case PHP_AMF_AMF3_TYPE_XML_DOC:
+		case PHP_AMF_AMF3_TYPE_DATE:
+		case PHP_AMF_AMF3_TYPE_ARRAY:
+		case PHP_AMF_AMF3_TYPE_OBJECT:
+		case PHP_AMF_AMF3_TYPE_XML:
+		case PHP_AMF_AMF3_TYPE_BYTEARRAY:
+		default:
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Byte marker %x is not supported", byte);
 	}
 
 	/* some tricks?
@@ -1111,8 +1216,8 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len, long
 	 *return_value = *z;
 	 RETVAL_NULL();
 	 RETVAL_NULL();
-	 RETVAL_BOOL(1);
-	 RETVAL_BOOL(0);
+	 RETVAL_BOOL(1); // true
+	 RETVAL_BOOL(0); // false
 
 	 if (type == IS_LONG) {
 	 RETVAL_LONG(p);
@@ -1127,8 +1232,15 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *str, int str_len, long
 	 FREE_ZVAL(z);
 	 */
 
-	// TOOD: finish this biotch. for now, just return null
-	RETVAL_NULL();
+	//
+
+	// TOOD: finish this biotch. for now, just return TRUE
+	RETVAL_BOOL(1);
+	// see http://flashmog.net/server_source_docs/current/__filesource/fsource_FlashMOG_FlashMOG_Server_fm_includesclassesSerializer_AMF3.php.html#a788
+
+	// will probably need to construct HashTables for strings, objects, and traits
+	// will probably also need to pass a buffer offset through decode functions so that
+	// each can update the buffer cursor as they unserialize each object encountered.
 
 
 } // php_amf_decode()
@@ -1196,8 +1308,8 @@ static PHP_FUNCTION(amf_encode) {
 /* {{{ proto mixed amf_decode(string amf_string [, int options])
  Decodes amf_string from its AMF representation into a PHP data object */
 static PHP_FUNCTION(amf_decode) {
-	char *amf_string;
-	int str_len;
+	char *buf; // char buffer, contains serialize data string
+	int buf_len; // the length of the buffer
 	long flags = 0;
 
 	/* sanity check on args */
@@ -1205,18 +1317,19 @@ static PHP_FUNCTION(amf_decode) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Invalid argument count");
 	}
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &amf_string, &str_len, &flags) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &buf, &buf_len, &flags) == FAILURE) {
 		return;
 	}
 
 	AMF_G(error_code) = PHP_AMF_ERROR_NONE;
 
-	if (!str_len) {
+	if (!buf_len) {
 		RETURN_NULL();
 	}
 
-	php_amf_decode(return_value, amf_string, str_len, flags TSRMLS_CC);
-}
+	int buf_cursor=0; //current cursor in the buffer, should be passed by reference
+	php_amf_decode(return_value, buf, buf_len, &buf_cursor, flags TSRMLS_CC);
+} // amf_decode()
 /* }}} */
 
 /* {{{ proto int amf_last_error()
