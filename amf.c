@@ -278,44 +278,6 @@ static void amf_write_int(smart_str *buf, long num TSRMLS_DC) /* {{{ */
 }
 /* }}} */
 
-/* this function assumes a double is precisely 8 bytes and does take into
- * account system endianness. Deprecated because:
- *
- */
-static void amf_write_doubleOLD(smart_str *buf, double dbl TSRMLS_DC) /* {{{ */
-{
-	if (zend_isinf(dbl) || zend_isnan(dbl)) {
-		php_error_docref(NULL TSRMLS_CC, E_ERROR,
-				"double %.9g is not a valid double, serialization failed.",
-				dbl);
-		return;
-	}
-	if (AMF_G(endianness) == PHP_AMF_ENDIAN_LITTLE) {
-		/*
-		 * the system is little endian so we must
-		 * reverse the byte order from little endian
-		 * to big endian
-		 */
-		union aligned {
-			double dval;
-			char cval[sizeof(double)];
-		} d;
-		const char * number = d.cval;
-		d.dval = dbl;
-
-		char byte_arr[sizeof(double)];
-		size_t i;
-		for (i = 0; i < sizeof(double); ++i) {
-			byte_arr[i] = number[sizeof(double) - 1 - i];
-		}
-		/* append byte_arr to the buffer! */
-		smart_str_appendl(buf, byte_arr, (sizeof(double)));
-
-	} else {
-		smart_str_appendl(buf, (char *)&dbl, (sizeof(double)));
-	}
-} /* amf_write_double() */
-/* }}} */
 
 /* this function assumes a double is precisely 8 bytes and does take into
  * account system endianness
@@ -1202,41 +1164,6 @@ int amf_read_int(char *buf, size_t buf_len, size_t *buf_cursor) {
 	return result;
 
 } // amf_read_int
-
-// deprecated because: "Reading from any field of a union other than the most recent one written to results in undefined behavior, according to the international C standard."
-double amf_read_doubleOLD(char *buf, size_t buf_len, size_t *buf_cursor) {
-
-	size_t last_byte_read = (*buf_cursor + sizeof(double));
-
-	if ((unsigned long)last_byte_read > (unsigned long)buf_len){
-		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Attempt to read %ld bytes when buffer contains only %ld bytes", last_byte_read, buf_len);
-	}
-
-	union {
-		double dval;
-		char cval[sizeof(double)];
-	} d;
-
-	double result;
-	int i;
-
-	if (AMF_G(endianness) == PHP_AMF_ENDIAN_LITTLE) {
-		// reverse the bytes?
-		for (i=0; i< sizeof(double); i++) {
-			d.cval[7-i] = 0xff & buf[*buf_cursor+i];
-		}
-	} else {
-		for (i=0; i< sizeof(double); i++) {
-			d.cval[i] = 0xff & buf[*buf_cursor+i];
-		}
-
-	}
-
-	result = d.dval;
-	*buf_cursor = last_byte_read;
-	return result;
-
-} // amf_read_double()
 
 // modified version of function suggested by laserlight
 // assumes sizeof(double) is EVEN and also alters the buffer if the system is little-endian
