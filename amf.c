@@ -697,7 +697,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 		if (serializeSealedTraits) {
 			// this function automatically writes length indicator for the string and then the string itself
 //			php_printf("writing class name %s because we must send serialized traits\n", classEntry->name);
-			amf_write_string(buf, classEntry->name, classEntry->name_length, flags, htStrings TSRMLS_CC); // some class
+			amf_write_string(buf, (char *)classEntry->name, classEntry->name_length, flags, htStrings TSRMLS_CC); // some class
 		}
 	}
 
@@ -733,7 +733,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 	if (dynamicTraitsHaveBegun || serializeSealedTraits) {
 		zend_hash_internal_pointer_reset_ex(properties, &pos);
 		// TODO: can this be made more efficient?
-		while (zend_hash_get_current_data_ex(properties, &property_value, &pos) == SUCCESS) {
+		while (zend_hash_get_current_data_ex(properties, (void **)&property_value, &pos) == SUCCESS) {
 			if (zend_hash_get_current_key_ex(properties, &key, &key_len, &num_index, 0, &pos) == HASH_KEY_IS_STRING) {
 				if (zend_check_property_access(zobj, key, key_len-1 TSRMLS_CC) == SUCCESS) {
 
@@ -745,7 +745,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 						//php_printf("property %s was found in the classEntry->propertries_info\n", key);
 						zend_unmangle_property_name_ex(key, key_len - 1, &class_name, &prop_name, &prop_len);
 //						php_printf("writing sealed trait unmangled property name %s, key_len is %d\n", prop_name, prop_len);
-						amf_write_string(buf, prop_name, prop_len, flags, htStrings TSRMLS_CC);
+						amf_write_string(buf, (char *)prop_name, prop_len, flags, htStrings TSRMLS_CC);
 
 					} else {
 						// this trait is dynamic! we should be able to skip the rest of the properties
@@ -761,7 +761,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 	// now output the values!
 	dynamicTraitsHaveBegun = 0;
 	zend_hash_internal_pointer_reset_ex(properties, &pos);
-	while (zend_hash_get_current_data_ex(properties, &property_value, &pos) == SUCCESS) {
+	while (zend_hash_get_current_data_ex(properties, (void **)&property_value, &pos) == SUCCESS) {
 		if (zend_hash_get_current_key_ex(properties, &key, &key_len, &num_index, 0, &pos) == HASH_KEY_IS_STRING) {
 			if (zend_check_property_access(zobj, key, key_len-1 TSRMLS_CC) == SUCCESS) {
 
@@ -784,7 +784,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 					zend_unmangle_property_name_ex(key, key_len - 1, &class_name, &prop_name, &prop_len);
 					// don't need to add a reference count because we will not be returning this value
 //					php_printf("unmangled property name is %s, key_len is %d\n", prop_name, prop_len);
-					amf_write_string(buf, prop_name, prop_len, flags, htStrings TSRMLS_CC);
+					amf_write_string(buf, (char *)prop_name, prop_len, flags, htStrings TSRMLS_CC);
 				}
 
 //				php_printf("serializing value of %s\n", prop_name);
@@ -1319,9 +1319,11 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
 //    	}
     	while (Z_STRLEN_P(assoc_key) > 0) {
     		zval *assoc_val;
+    		MAKE_STD_ZVAL(assoc_val);
     		php_amf_decode(assoc_val, buf, buf_len, buf_cursor, flags, htComplexObjects, htObjectTypeTraits, htStrings  TSRMLS_CC);
     		// add the key-value pair to the return_value array
-    		if (add_assoc_string(return_value, Z_STRVAL_P(assoc_key), assoc_val, 1) != SUCCESS) {
+
+    		if (add_assoc_zval(return_value, Z_STRVAL_P(assoc_key), assoc_val) == FAILURE) {
     			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %s to array\n", Z_STRVAL_P(assoc_key));
     		}
 
