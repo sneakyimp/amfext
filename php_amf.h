@@ -91,7 +91,8 @@ ZEND_END_MODULE_GLOBALS(amf)
 
 
 PHP_AMF_API void php_amf_encode(smart_str *buf, zval *val, int flags, HashTable *htArrays, HashTable *htObjects, HashTable *htStrings TSRMLS_DC);
-PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, size_t buf_len, size_t *buf_cursor, long flags TSRMLS_DC);
+PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, size_t buf_len, size_t *buf_cursor, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC);
+void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_value, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC);
 
 
 /*
