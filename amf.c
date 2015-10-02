@@ -30,6 +30,7 @@
 #include "ext/standard/info.h"
 #include "ext/standard/php_smart_str.h"
 #include "ext/standard/php_var.h"
+#include <stddef.h>
 #include "php_amf.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(amf)
@@ -1269,20 +1270,18 @@ double amf_read_double(char *buf, size_t buf_len, size_t *buf_cursor) {
 void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_value, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC)
 {
 
-	php_printf("amf_read_array\n");
     int info;
 
     info = amf_read_int(buf, buf_len, buf_cursor);
 
     if ((info & 0x01) == 0) {
-    	// it's a reference
+    	// this array has been passed by reference to a previously encountered object
 
     	size_t arr_index = (unsigned int)(info >> 1);
     	size_t obj_count = (unsigned int)zend_hash_next_free_element(htComplexObjects);
-    	php_printf("%d objects already exist", (unsigned int)obj_count);
-    	// no need to increase buf_cursor as that has already been handled by amf_read_int
+
     	zval *arrz;
-    	if (zend_hash_index_find(htStrings, arr_index, (void**)&arrz) != SUCCESS) {
+    	if (zend_hash_index_find(htComplexObjects, arr_index, (void**)&arrz) != SUCCESS) {
         	php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to locate array sent by reference #%d", (unsigned int)arr_index);
     	}
 
@@ -1290,26 +1289,33 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
     	if (Z_TYPE_P(arrz) != IS_ARRAY) {
         	php_error_docref(NULL TSRMLS_CC, E_ERROR, "array ZVAL stored at index %d is not a string", (unsigned int)arr_index);
     	}
+
     	// return the array (or a copy of it?)
     	array_init(return_value);
+    	// TODO: RETURN_ZVAL(); ?? WHAT IS DTOR?
+
+    	// no need to increase buf_cursor as that has already been handled by amf_read_int for info above
+
     	return;
     } else {
+    	// value not passed by reference!
     	// first time this object encountered, serialized data follows
 
+    	// length of contiguous numerically indexed elements
     	size_t contig_length = (unsigned int)(info >> 1);
-    	php_printf("contig length is %d\n", (unsigned int)contig_length);
 
+    	// initialize return value as an array
     	array_init(return_value);
 
     	zval *assoc_key;
     	MAKE_STD_ZVAL(assoc_key);
     	amf_read_string(buf, buf_len, buf_cursor, assoc_key, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
-    	php_printf("we are back\n");
+
+    	// had to remove this check because it was failing on empty strings for some reason
 //    	if (Z_TYPE_P(assoc_key) == IS_STRING) {
-    		// this seems to run even if the key is the empty string??
-//    		php_printf("it's not a string, type=%d, key is %s\n", Z_TYPE_P(assoc_key), Z_STRVAL_P(assoc_key));
-//    	} else {
-//    		php_printf("oh definitely a string\n");
+//    		 //this seems to run even if the key is the empty string??
+//    		// the baffling thing is it returns "String expected, but returned object type is 6"
+//    		php_error_docref(NULL TSRMLS_CC, E_ERROR, "String expected, but returned object type is %d", (unsigned int)Z_TYPE_P(assoc_key));
 //    	}
     	while (Z_STRLEN_P(assoc_key) > 0) {
     		zval *assoc_val;
@@ -1321,22 +1327,19 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
 
     		amf_read_string(buf, buf_len, buf_cursor, assoc_key, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
     	}
-    	php_printf("key-value pairs complete\n");
-    	// start reading the numeric indices
+    	// associative key-value pairs complete
 
+    	// start reading the numeric indices
     	int i;
 		for(i=0; i<contig_length; i++) {
 			zval *next_value;
 			MAKE_STD_ZVAL(next_value);
 			php_amf_decode(next_value, buf, buf_len, buf_cursor, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
-			php_printf("adding numeric index %d\n", i);
 			add_next_index_zval(return_value, next_value);
 		}
-php_printf("array parsing complete...\n");
     	return;
     }
 
-	php_printf("decoding array complete\n");
 }
 void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_value, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC) {
     char *str;
@@ -1344,11 +1347,8 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     int info;
     size_t str_index;
 
-    php_printf("amf_read_string\n");
-
+    // first int read contains special info
     info = amf_read_int(buf, buf_len, buf_cursor);
-
-    php_printf("info is %d\n", info);
 
     if ((info & 0x01) == 0) {
     	// unserialize as a reference!
@@ -1358,15 +1358,19 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     	// check if str_index (a size_t) is larger than the number of elements in the string hash table. if so, return error or return false or something
     	size_t string_count;
     	string_count = (unsigned int)zend_hash_next_free_element(htStrings);
-    	php_printf("%d strings already exist\n", (unsigned int)string_count);
+
+    	if (str_index >= string_count) {
+    		php_error_docref(NULL TSRMLS_CC, E_ERROR, "String reference index %d out of bounds in array of size %d", (unsigned int)str_index, (unsigned int)string_count);
+    	}
+
     	// no need to increase buf_cursor as that has already been handled by amf_read_int
     	zval *strz;
     	if (zend_hash_index_find(htStrings, str_index, (void**)&strz) != SUCCESS) {
         	php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to locate string sent by reference #%d", (unsigned int)str_index);
     	}
     	// make sure it's a string
-    	php_printf("referenced string's value is %s, len is %d\n", Z_STRVAL_P(strz), Z_STRLEN_P(strz));
-    	// WTF? Z_TYPE_P(strz) is never IS_STRING and yet Z_STRVAL_P returns a value???
+    	// WTF? Z_TYPE_P(strz) is never IS_STRING and Z_STRVAL_P returns messed up values
+    	// e.g., "ZVAL stored at index 0 is not a string, type=-30420640"
 //    	if (Z_TYPE_P(strz) != IS_STRING) {
 //        	php_error_docref(NULL TSRMLS_CC, E_ERROR, "ZVAL stored at index %d is not a string, type=%d\n", (unsigned int)str_index, Z_STRVAL_P(strz));
 //    	}
@@ -1379,13 +1383,11 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     	// TODO: what about endianness?
     	// extract string length from info by dropping the low bit
     	str_len = (unsigned int)(info >> 1);
-    	php_printf("not a reference, str_len is %d\n", (unsigned int)str_len);
     	if (str_len > 0) {
 			size_t last_byte_read = (*buf_cursor + str_len);
 			if (last_byte_read > buf_len) {
 				php_error_docref(NULL TSRMLS_CC, E_ERROR, "Attempt to read %ld bytes when buffer contains only %ld bytes", (unsigned long)last_byte_read, (unsigned long)buf_len);
 			}
-			php_printf("last_byte_read is %d\n", (unsigned int)last_byte_read);
 			// set str to point to the current location in the buffer
 			str = (buf + *buf_cursor);
     		// create string zval to store so each string has an associated length when we pop it off as a reference
@@ -1398,10 +1400,9 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
         	*buf_cursor += str_len;
         	RETURN_STRINGL(str, str_len, 1);
     	} else {
-    		php_printf("string length is zero\n");
+    		//string length is zero
     		RETURN_EMPTY_STRING();
     	}
-    	php_printf("getting ready to return\n");
     }
 }
 
@@ -1451,7 +1452,6 @@ PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, size_t buf_len, s
 			break;
 		case PHP_AMF_AMF3_TYPE_ARRAY:
 			amf_read_array(buf, buf_len, buf_cursor, return_value, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
-			php_printf("read_array complete in main fn\n");
 			return; // although return_value is set in amf_read_string by RETURN_STRINGL, we must return here to avoid any further changes to return_value
 			break;
 
@@ -1569,13 +1569,17 @@ static PHP_FUNCTION(amf_decode) {
 
 	/* sanity check on args */
 	if ((ZEND_NUM_ARGS() < 1) || (ZEND_NUM_ARGS() > 2)) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Invalid argument count");
+		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Invalid argument count");
 	}
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &buf, &tmp_buf_len, &flags) == FAILURE) {
 		return;
 	}
-	buf_len = (unsigned int)tmp_buf_len;
+	// check per laserlight's suggestion
+	if (tmp_buf_len < 0) {
+		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Input buffer length (%ld) is negative!", tmp_buf_len);
+	}
+	buf_len = (size_t)tmp_buf_len;
 
 
 	AMF_G(error_code) = PHP_AMF_ERROR_NONE;
