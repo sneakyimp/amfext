@@ -1234,26 +1234,35 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
     	// initialize return value as an array
     	array_init(return_value);
 
-        zval *assoc_key, *assoc_val;
-        MAKE_STD_ZVAL(assoc_val);
+        zval *assoc_key;
         MAKE_STD_ZVAL(assoc_key);
         while (1) {
+        	// read the next (possibly the first) associative key
             amf_read_string(buf, buf_len, buf_cursor, assoc_key, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
             if (Z_TYPE_P(assoc_key) != IS_STRING) {
                 php_error_docref(NULL TSRMLS_CC, E_ERROR, "String expected, but returned object type is %d", (unsigned int)Z_TYPE_P(assoc_key));
-            } else if (Z_STRLEN_P(assoc_key) == 0) {
+            }
+            // if the key is the empty string, the assoc keys are over, exit loop
+            if (Z_STRLEN_P(assoc_key) == 0) {
                 break;
             }
 
+            zval *assoc_val;
+            MAKE_STD_ZVAL(assoc_val);
             php_amf_decode(assoc_val, buf, buf_len, buf_cursor, flags, htComplexObjects, htObjectTypeTraits, htStrings  TSRMLS_CC);
             // add the key-value pair to the return_value array
-
             if (add_assoc_zval(return_value, Z_STRVAL_P(assoc_key), assoc_val) == FAILURE) {
                 php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %s to array\n", Z_STRVAL_P(assoc_key));
             }
+            // val has been copied to array, dtor it here to free unneeded memory
+            zval_dtor(assoc_val);
+
             zval_dtor(assoc_key);
         }
         zval_ptr_dtor(&assoc_key);
+
+        // why no need to zval_ptr_dtor(&assoc_val) ???
+
     	// associative key-value pairs complete
 
     	// start reading the numeric indices
