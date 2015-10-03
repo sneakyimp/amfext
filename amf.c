@@ -1234,28 +1234,26 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
     	// initialize return value as an array
     	array_init(return_value);
 
-    	zval *assoc_key;
-    	MAKE_STD_ZVAL(assoc_key);
-    	amf_read_string(buf, buf_len, buf_cursor, assoc_key, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
+        zval *assoc_key, *assoc_val;
+        MAKE_STD_ZVAL(assoc_val);
+        MAKE_STD_ZVAL(assoc_key);
+        while (1) {
+            amf_read_string(buf, buf_len, buf_cursor, assoc_key, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
+            if (Z_TYPE_P(assoc_key) != IS_STRING) {
+                php_error_docref(NULL TSRMLS_CC, E_ERROR, "String expected, but returned object type is %d", (unsigned int)Z_TYPE_P(assoc_key));
+            } else if (Z_STRLEN_P(assoc_key) == 0) {
+                break;
+            }
 
-    	// had to remove this check because it was failing on empty strings for some reason
-//    	if (Z_TYPE_P(assoc_key) == IS_STRING) {
-//    		 //this seems to run even if the key is the empty string??
-//    		// the baffling thing is it returns "String expected, but returned object type is 6"
-//    		php_error_docref(NULL TSRMLS_CC, E_ERROR, "String expected, but returned object type is %d", (unsigned int)Z_TYPE_P(assoc_key));
-//    	}
-    	while (Z_STRLEN_P(assoc_key) > 0) {
-    		zval *assoc_val;
-    		MAKE_STD_ZVAL(assoc_val);
-    		php_amf_decode(assoc_val, buf, buf_len, buf_cursor, flags, htComplexObjects, htObjectTypeTraits, htStrings  TSRMLS_CC);
-    		// add the key-value pair to the return_value array
+            php_amf_decode(assoc_val, buf, buf_len, buf_cursor, flags, htComplexObjects, htObjectTypeTraits, htStrings  TSRMLS_CC);
+            // add the key-value pair to the return_value array
 
-    		if (add_assoc_zval(return_value, Z_STRVAL_P(assoc_key), assoc_val) == FAILURE) {
-    			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %s to array\n", Z_STRVAL_P(assoc_key));
-    		}
-
-    		amf_read_string(buf, buf_len, buf_cursor, assoc_key, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
-    	}
+            if (add_assoc_zval(return_value, Z_STRVAL_P(assoc_key), assoc_val) == FAILURE) {
+                php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %s to array\n", Z_STRVAL_P(assoc_key));
+            }
+            zval_dtor(assoc_key);
+        }
+        zval_ptr_dtor(&assoc_key);
     	// associative key-value pairs complete
 
     	// start reading the numeric indices
@@ -1326,6 +1324,7 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     		if (zend_hash_next_index_insert(htStrings, strz, sizeof(strz), NULL) != SUCCESS) {
     			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Error adding string to strings hash table");
     		}
+    		zval_ptr_dtor(&strz);
         	*buf_cursor += str_len;
         	RETURN_STRINGL(str, str_len, 1);
     	} else {
