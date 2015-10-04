@@ -362,8 +362,7 @@ static void amf_write_string(smart_str *buf, char *str, long len, long flags, Ha
 		php_error_docref(
 				NULL TSRMLS_CC,
 				E_WARNING,
-				"UTF8 translation not yet implemented. serialized as empty string",
-				len);
+				"UTF8 translation not yet implemented. serialized as empty string");
 		return;
 	}
 
@@ -669,7 +668,7 @@ static void amf_write_object(smart_str *buf, zval **val, int flags, HashTable *h
 	HashTable *properties; // HT of key-value pairs for this object
 	zval **property_value; // the value of each property
 	const char *prop_name, *class_name; // need these to "unmangle" key/name, see http://www.phpinternalsbook.com/classes_objects/internal_structures_and_implementation.html
-	uint prop_len; // length of the unmangled property name. seems to be the correct length (i.e., it lacks null chars that exist in mangled names)
+	int prop_len; // length of the unmangled property name. seems to be the correct length (i.e., it lacks null chars that exist in mangled names)
 	zend_bool dynamicTraitsHaveBegun = 0;
 
 
@@ -824,8 +823,8 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 
 	// these vars needed to iterate through the array's HashTable object
 	char *key;
-	zval **data, **keyData;
-	long index;
+	zval **data;
+	ulong index;
 	uint key_len;
 	HashPosition pos;
 
@@ -838,8 +837,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 		// if the array to be serialized has any elements...
 
 
-		long hiKey=-1; // highest numeric key in the array
-		long prevKey; //previous numeric key
+		ulong hiKey = -1; // highest numeric key in the array
 
 		// reset the array HashTable and loop through all of its keys
 		// to find the highest numeric one
@@ -1206,7 +1204,6 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
     	// this array has been passed by reference to a previously encountered object
 
     	size_t arr_index = (unsigned int)(info >> 1);
-    	size_t obj_count = (unsigned int)zend_hash_next_free_element(htComplexObjects);
 
     	zval *arrz;
     	if (zend_hash_index_find(htComplexObjects, arr_index, (void**)&arrz) != SUCCESS) {
