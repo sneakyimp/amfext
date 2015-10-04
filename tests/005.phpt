@@ -39,7 +39,14 @@ array(4) {
 }
 OK
 
-TODO encode/decode failed --Sean-Der
+string(22) "0901036104010362040301"
+array(2) {
+  ["a"]=>
+  int(1)
+  ["b"]=>
+  int(3)
+}
+OK
 
 string(22) "0905036104010104050406"
 array(3) {
