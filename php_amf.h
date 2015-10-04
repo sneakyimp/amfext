@@ -50,9 +50,9 @@ static PHP_FUNCTION(amf_decode);
 static PHP_FUNCTION(amf_last_error);
 static PHP_FUNCTION(amf_last_error_msg);
 
-/* 
+/*
   	Declare any global variables you may need between the BEGIN
-	and END macros here:     
+	and END macros here:
 */
 ZEND_BEGIN_MODULE_GLOBALS(amf)
 	/* may not need this...following the example of json_encode */
@@ -73,12 +73,12 @@ ZEND_BEGIN_MODULE_GLOBALS(amf)
 ZEND_END_MODULE_GLOBALS(amf)
 
 
-/* In every utility function you add that needs to use variables 
-   in php_amf_globals, call TSRMLS_FETCH(); after declaring other 
+/* In every utility function you add that needs to use variables
+   in php_amf_globals, call TSRMLS_FETCH(); after declaring other
    variables used by that function, or better yet, pass in TSRMLS_CC
    after the last function argument and declare your utility function
    with TSRMLS_DC after the last declared argument.  Always refer to
-   the globals in your function as AMF_G(variable).  You are 
+   the globals in your function as AMF_G(variable).  You are
    encouraged to rename these macros something shorter, see
    examples in any other php module directory.
 */
@@ -93,7 +93,7 @@ ZEND_END_MODULE_GLOBALS(amf)
 PHP_AMF_API void php_amf_encode(smart_str *buf, zval *val, int flags, HashTable *htArrays, HashTable *htObjects, HashTable *htStrings TSRMLS_DC);
 PHP_AMF_API void php_amf_decode(zval *return_value, char *buf, size_t buf_len, size_t *buf_cursor, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC);
 void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_value, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC);
-
+inline int amf_add_var_hash(HashTable *htVars, zval *var, void *var_old TSRMLS_DC);
 
 /*
    A variety of constants that AMF will export into the global namespace

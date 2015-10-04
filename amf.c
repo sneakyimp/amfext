@@ -381,7 +381,7 @@ static void amf_write_string(smart_str *buf, char *str, long len, long flags, Ha
 
 inline int amf_add_var_hash(HashTable *htVars, zval *var, void *var_old TSRMLS_DC) /* {{{ */
 {
-	ulong var_no;
+	zval *var_no;
 	char id[32], *p;
 	register int len;
 
@@ -408,8 +408,9 @@ inline int amf_add_var_hash(HashTable *htVars, zval *var, void *var_old TSRMLS_D
 	}
 
 	/* +1 because otherwise hash will think we are trying to store NULL pointer */
-	var_no = zend_hash_num_elements(htVars) + 1;
-	zend_hash_add(htVars, p, len, &var_no, sizeof(var_no), NULL);
+	MAKE_STD_ZVAL(var_no);
+	ZVAL_LONG(var_no, zend_hash_num_elements(htVars) + 1);
+	zend_hash_add(htVars, p, len, (void **) &var_no, sizeof(zval *), NULL);
 	return SUCCESS;
 }
 /* }}} */
@@ -1254,15 +1255,9 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
             if (add_assoc_zval(return_value, Z_STRVAL_P(assoc_key), assoc_val) == FAILURE) {
                 php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %s to array\n", Z_STRVAL_P(assoc_key));
             }
-            // val has been copied to array, dtor it here to free unneeded memory
-            zval_dtor(assoc_val);
-
             zval_dtor(assoc_key);
         }
         zval_ptr_dtor(&assoc_key);
-
-        // why no need to zval_ptr_dtor(&assoc_val) ???
-
     	// associative key-value pairs complete
 
     	// start reading the numeric indices
@@ -1282,6 +1277,7 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     size_t str_len;
     int info;
     size_t str_index;
+    zval *strz;
 
     // first int read contains special info
     info = amf_read_int(buf, buf_len, buf_cursor);
@@ -1300,7 +1296,6 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     	}
 
     	// no need to increase buf_cursor as that has already been handled by amf_read_int
-    	zval *strz;
     	if (zend_hash_index_find(htStrings, str_index, (void**)&strz) != SUCCESS) {
         	php_error_docref(NULL TSRMLS_CC, E_ERROR, "Unable to locate string sent by reference #%d", (unsigned int)str_index);
     	}
@@ -1327,13 +1322,11 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
 			// set str to point to the current location in the buffer
 			str = (buf + *buf_cursor);
     		// create string zval to store so each string has an associated length when we pop it off as a reference
-    		zval *strz;
     		MAKE_STD_ZVAL(strz);
     		ZVAL_STRINGL(strz, str, str_len, 1);
-    		if (zend_hash_next_index_insert(htStrings, strz, sizeof(strz), NULL) != SUCCESS) {
+    		if (zend_hash_next_index_insert(htStrings, (void **)&strz, sizeof(zval *), NULL) != SUCCESS) {
     			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Error adding string to strings hash table");
     		}
-    		zval_ptr_dtor(&strz);
         	*buf_cursor += str_len;
         	RETURN_STRINGL(str, str_len, 1);
     	} else {
@@ -1469,13 +1462,13 @@ static PHP_FUNCTION(amf_encode) {
 		return;
 	}
 
-	zend_hash_init(&(htComplexObjects), 10, NULL, NULL, 0);
-	zend_hash_init(&(htObjectTypeTraits), 10, NULL, NULL, 0);
-	zend_hash_init(&(htStrings), 10, NULL, NULL, 0);
+	zend_hash_init(&htComplexObjects, 10, NULL, ZVAL_PTR_DTOR, 0);
+	zend_hash_init(&htObjectTypeTraits, 10, NULL, NULL, 0);
+	zend_hash_init(&htStrings, 10, NULL, ZVAL_PTR_DTOR, 0);
 	php_amf_encode(&buf, ptrZvalToEncode, flags, &htComplexObjects, &htObjectTypeTraits, &htStrings TSRMLS_CC);
-	zend_hash_destroy(&(htComplexObjects));
-	zend_hash_destroy(&(htObjectTypeTraits));
-	zend_hash_destroy(&(htStrings));
+	zend_hash_destroy(&htComplexObjects);
+	zend_hash_destroy(&htObjectTypeTraits);
+	zend_hash_destroy(&htStrings);
 
 
 	// I borrowed this trick from the json_encode function. NOTE that function also lets you specify whether you want partial output
@@ -1501,7 +1494,7 @@ static PHP_FUNCTION(amf_encode) {
 static PHP_FUNCTION(amf_decode) {
 	char *buf; // char buffer, contains serialize data string
 	size_t buf_len; // the length of the buffer
-	long tmp_buf_len;
+	int tmp_buf_len;
 	long flags = 0;
 
 	/* sanity check on args */
@@ -1514,7 +1507,7 @@ static PHP_FUNCTION(amf_decode) {
 	}
 	// check per laserlight's suggestion
 	if (tmp_buf_len < 0) {
-		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Input buffer length (%ld) is negative!", tmp_buf_len);
+		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Input buffer length (%d) is negative!", tmp_buf_len);
 	}
 	buf_len = (size_t)tmp_buf_len;
 
@@ -1530,13 +1523,13 @@ static PHP_FUNCTION(amf_decode) {
 	HashTable htStrings;
 
 	size_t buf_cursor=0; //current cursor in the buffer, should be passed by reference
-	zend_hash_init(&(htComplexObjects), 10, NULL, NULL, 0);
-	zend_hash_init(&(htObjectTypeTraits), 10, NULL, NULL, 0);
-	zend_hash_init(&(htStrings), 10, NULL, NULL, 0);
+	zend_hash_init(&htComplexObjects, 10, NULL, NULL, 0);
+	zend_hash_init(&htObjectTypeTraits, 10, NULL, NULL, 0);
+	zend_hash_init(&htStrings, 10, NULL, ZVAL_PTR_DTOR, 0);
 	php_amf_decode(return_value, buf, buf_len, &buf_cursor, flags, &htComplexObjects, &htObjectTypeTraits, &htStrings TSRMLS_CC);
-	zend_hash_destroy(&(htComplexObjects));
-	zend_hash_destroy(&(htObjectTypeTraits));
-	zend_hash_destroy(&(htStrings));
+	zend_hash_destroy(&htComplexObjects);
+	zend_hash_destroy(&htObjectTypeTraits);
+	zend_hash_destroy(&htStrings);
 
 } // amf_decode()
 /* }}} */
