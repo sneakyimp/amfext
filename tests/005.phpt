@@ -11,6 +11,7 @@ encodeAndDecode([true]);
 encodeAndDecode([1, true, 'string', null]);
 encodeAndDecode(['a' => 1, 'b' => 3]);
 encodeAndDecode(['a' => 1, 5, 6]);
+encodeAndDecode(['a' => ['b' => true, 'c']]);
 
 ?>
 --EXPECT--
@@ -56,6 +57,18 @@ array(3) {
   int(5)
   [1]=>
   int(6)
+}
+OK
+
+string(28) "0901036109030362030106036301"
+array(1) {
+  ["a"]=>
+  array(2) {
+    ["b"]=>
+    bool(true)
+    [0]=>
+    string(1) "c"
+  }
 }
 OK
 
