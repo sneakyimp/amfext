@@ -825,7 +825,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 	// these vars needed to iterate through the array's HashTable object
 	char *key;
 	zval **data;
-	long index;
+	ulong index;
 	uint key_len;
 	HashPosition pos;
 
@@ -841,7 +841,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 		// if the array to be serialized has any elements...
 
 
-		long hiKey=-1; // highest numeric key in the array
+		ulong hiKey = 0; // highest numeric key in the array
 
 		// reset the array HashTable and loop through all of its keys
 		// to find the highest numeric one
@@ -943,7 +943,8 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 					// write the numeric index as a STRING
 					// TODO: figure out how to convert a long to a char* and get its length
 					char* indexAsString;
-					spprintf(&indexAsString, 10, "%ld", index);
+					int indexAsStringLen;
+					indexAsStringLen = spprintf(&indexAsString, 10, "%ld", (long)index);
 					if (!indexAsString){
 						php_error_docref(
 								NULL TSRMLS_CC,
@@ -953,12 +954,11 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 						);
 						return;
 					}
-					amf_write_string(buf, indexAsString, strlen(indexAsString), flags, htStrings TSRMLS_CC);
-					efree(indexAsString);
+					amf_write_string(buf, indexAsString, indexAsStringLen, flags, htStrings TSRMLS_CC);
+//					efree(indexAsString);
 
 					// write the value which requires a recursive call
 					php_amf_encode(buf, *data, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
-
 
 				} else {
 					// this numeric index falls within the contiguous range and will be
