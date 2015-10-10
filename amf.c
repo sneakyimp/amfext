@@ -785,7 +785,9 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 {
 	/* holds the reference number if this array previously serialized */
 	ulong *prev_serialized_ref;
-	long i, j, numElements, prevReferences;
+	long i;
+	ulong j;
+	int numElements, prevReferences;
 	HashTable *myHashTable;
 
 	// check to make sure less than PHP_AMF_OBJECT_REFERENCES_MAX before trying
@@ -829,7 +831,10 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 
 	ulong contigLength;
 
-	myHashTable = Z_ARRVAL_PP(val);
+	// was getting some weird behavior from this
+//	myHashTable = Z_ARRVAL_PP(val);
+	// so i tried this
+	myHashTable = HASH_OF(*val); // see http://lxr.php.net/xref/PHP_5_6/ext/json/json.c#240
 	numElements = myHashTable ? zend_hash_num_elements(myHashTable) : 0;
 
 	if (numElements > 0) {
