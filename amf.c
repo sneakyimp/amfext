@@ -825,7 +825,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 	// these vars needed to iterate through the array's HashTable object
 	char *key;
 	zval **data;
-	ulong index;
+	ulong current_index;
 	uint key_len;
 	HashPosition pos;
 
@@ -841,13 +841,13 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 		// if the array to be serialized has any elements...
 
 
-		ulong hiKey = 0; // highest numeric key in the array
+		long hiKey = -1; // highest numeric key in the array
 
 		// reset the array HashTable and loop through all of its keys
 		// to find the highest numeric one
 		zend_hash_internal_pointer_reset_ex(myHashTable, &pos);
 		for (;; zend_hash_move_forward_ex(myHashTable, &pos)) {
-			i = zend_hash_get_current_key_ex(myHashTable, &key, &key_len, &index, 0, &pos);
+			i = zend_hash_get_current_key_ex(myHashTable, &key, &key_len, &current_index, 0, &pos);
 			if (i == HASH_KEY_NON_EXISTANT) {
 				// out of members! skip the rest of the loop
 				break;
@@ -855,8 +855,8 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 
 			if (i == HASH_KEY_IS_LONG) {
 				// var index holds the numeric key of the next element
-				if (index > hiKey) {
-					hiKey = index;
+				if ((long)current_index > hiKey) {
+					hiKey = (long)current_index;
 				}
 			}
 		}
@@ -879,7 +879,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
             }
         }
 
-//				php_printf("contigLength is %ld\n", contigLength);
+//		php_printf("contigLength is %ld\n", contigLength);
 
 		if (contigLength > PHP_AMF_ARRAY_CONTIG_LENGTH_MAX){
 			php_error_docref(
@@ -910,7 +910,7 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 		// associative and NON-contiguous numeric indices as associative keys
 		zend_hash_internal_pointer_reset_ex(myHashTable, &pos);
 		for (;; zend_hash_move_forward_ex(myHashTable, &pos)) {
-			i = zend_hash_get_current_key_ex(myHashTable, &key, &key_len, &index, 0, &pos);
+			i = zend_hash_get_current_key_ex(myHashTable, &key, &key_len, &current_index, 0, &pos);
 			if (i == HASH_KEY_NON_EXISTANT) {
 				// out of members! skip the rest of the loop
 				break;
@@ -926,17 +926,15 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 			if (i == HASH_KEY_IS_LONG) {
 				// var index holds the numeric key of the next element
 				// if it's outside the contiguous range, serialize it as a string
-				if (index < 0 || index >= contigLength) {
+				if (current_index < 0 || current_index >= contigLength) {
 
 					// this is a negative or non-contiguous index so we output it as a name-value pair
 					// first, we retrieve the data from the main array we are serializing
-					if (zend_hash_index_find(myHashTable, index, (void **) &data) != SUCCESS) {
+					if (zend_hash_index_find(myHashTable, current_index, (void **) &data) != SUCCESS) {
 						php_error_docref(
 								NULL TSRMLS_CC,
 								E_ERROR,
-								"Unable to retrieve data for numeric key %ld while serializing an array",
-								index
-						);
+								"Unable to retrieve data for numeric key %ld while serializing an array", (long)current_index);
 						return;
 
 					}
@@ -944,14 +942,12 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 					// TODO: figure out how to convert a long to a char* and get its length
 					char* indexAsString;
 					int indexAsStringLen;
-					indexAsStringLen = spprintf(&indexAsString, 10, "%ld", (long)index);
+					indexAsStringLen = spprintf(&indexAsString, 10, "%ld", (long)current_index);
 					if (!indexAsString){
 						php_error_docref(
 								NULL TSRMLS_CC,
 								E_ERROR,
-								"Error encountered trying to convert key %ld to a string",
-								index
-						);
+								"Error encountered trying to convert key %ld to a string",(long)current_index);
 						return;
 					}
 					amf_write_string(buf, indexAsString, indexAsStringLen, flags, htStrings TSRMLS_CC);
@@ -1008,14 +1004,11 @@ static void amf_write_array(smart_str *buf, zval **val, int flags, HashTable *ht
 
 		// WRITE contiguous numeric indices
 		for(j=0; j< contigLength; j++) {
-			if (zend_hash_index_find(myHashTable, j, (void **) &data) != SUCCESS) {
+			if (zend_hash_index_find(myHashTable, j, (void **) &data) == FAILURE) {
 				php_error_docref(
 						NULL TSRMLS_CC,
 						E_ERROR,
-						"Unable to retrieve data for numeric key %ld while serializing contiguous numeric indices",
-						j
-				);
-
+						"Unable to retrieve data for numeric key %ld while serializing contiguous numeric indices", (long)j);
 			}
 			// write the value which requires a recursive call
 			php_amf_encode(buf, *data, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
@@ -1257,19 +1250,24 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
                 php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %s to array\n", Z_STRVAL_P(assoc_key));
             }
 
-            zval_dtor(assoc_key);
+//            zval_dtor(assoc_key);
         }
         zval_ptr_dtor(&assoc_key);
 
     	// associative key-value pairs complete
 
     	// start reading the numeric indices
-    	int i;
+    	ulong i;
 		for(i=0; i<contig_length; i++) {
 			zval *next_value;
 			MAKE_STD_ZVAL(next_value);
 			php_amf_decode(next_value, buf, buf_len, buf_cursor, flags, htComplexObjects, htObjectTypeTraits, htStrings TSRMLS_CC);
-			add_next_index_zval(return_value, next_value);
+			// old way, didn't preserve original 0-n indices, but rather added on after highest existing int key
+//			add_next_index_zval(return_value, next_value);
+			// the fix
+			if (add_index_zval(return_value, i, next_value) == FAILURE){
+				php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not add element %ld to array\n", (long)i);
+			}
 		}
     	return;
     }
@@ -1277,9 +1275,9 @@ void amf_read_array(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_
 }
 void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return_value, long flags, HashTable *htComplexObjects, HashTable *htObjectTypeTraits, HashTable *htStrings TSRMLS_DC) {
     char *str;
-    size_t str_len;
+    int str_len;
     int info;
-    size_t str_index;
+    ulong str_index;
     zval *strz;
 
     // first int read contains special info
@@ -1288,14 +1286,14 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     if ((info & 0x01) == 0) {
     	// unserialize as a reference!
     	// extract string's key from info
-    	str_index = (unsigned int)(info >> 1);
+    	str_index = (ulong)(info >> 1);
     	// fetch zval from the string table and return a copy of the string it contains
     	// check if str_index (a size_t) is larger than the number of elements in the string hash table. if so, return error or return false or something
-    	size_t string_count;
-    	string_count = (unsigned int)zend_hash_next_free_element(htStrings);
+    	ulong string_count;
+    	string_count = zend_hash_next_free_element(htStrings);
 
     	if (str_index >= string_count) {
-    		php_error_docref(NULL TSRMLS_CC, E_ERROR, "String reference index %d out of bounds in array of size %d", (unsigned int)str_index, (unsigned int)string_count);
+    		php_error_docref(NULL TSRMLS_CC, E_ERROR, "String reference index %ld out of bounds in array of size %ld", (long)str_index, (long)string_count);
     	}
 
     	// no need to increase buf_cursor as that has already been handled by amf_read_int
@@ -1316,9 +1314,9 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
 
     	// TODO: what about endianness?
     	// extract string length from info by dropping the low bit
-    	str_len = (unsigned int)(info >> 1);
+    	str_len = (int)(info >> 1);
     	if (str_len > 0) {
-			size_t last_byte_read = (*buf_cursor + str_len);
+			size_t last_byte_read = (*buf_cursor + (size_t)str_len);
 			if (last_byte_read > buf_len) {
 				php_error_docref(NULL TSRMLS_CC, E_ERROR, "Attempt to read %ld bytes when buffer contains only %ld bytes", (unsigned long)last_byte_read, (unsigned long)buf_len);
 			}
@@ -1330,7 +1328,9 @@ void amf_read_string(char *buf, size_t buf_len, size_t *buf_cursor, zval *return
     		if (zend_hash_next_index_insert(htStrings, strz, sizeof(strz), NULL) != SUCCESS) {
     			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Error adding string to strings hash table");
     		}
-    		zval_ptr_dtor(&strz);
+    		// DAMMIT. If I try to free this memory, it somehow introduces some cross-talk in the htStrings HashTable
+    		// TODO: find out how we can free this memory without screwing up our serialization.
+//    		zval_ptr_dtor(&strz);
         	*buf_cursor += str_len;
         	RETURN_STRINGL(str, str_len, 1);
     	} else {
